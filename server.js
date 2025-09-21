@@ -1,57 +1,49 @@
 // server.js
 
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
+const { kv } = require('@vercel/kv'); // Import the Vercel KV package
 
 const app = express();
 const PORT = 3000;
-const HIGH_SCORE_FILE = path.join(__dirname, 'data', 'highscore.json');
 
 // --- Middleware ---
-// Serve static files from the 'public' directory
 app.use(express.static('public'));
-// Enable the express app to parse JSON formatted request bodies
 app.use(express.json());
-
 
 // --- API Routes ---
 
-// GET route to fetch the high score
-app.get('/api/highscore', (req, res) => {
-    fs.readFile(HIGH_SCORE_FILE, 'utf8', (err, data) => {
-        if (err) {
-            console.error(err);
-            return res.status(500).json({ message: 'Error reading high score' });
-        }
-        res.json(JSON.parse(data));
-    });
+// GET route to fetch the high score from Vercel KV
+app.get('/api/highscore', async (req, res) => {
+    try {
+        // Retrieve the score from the key 'highscore'. If it doesn't exist, default to 0.
+        const highScore = await kv.get('highscore') || 0;
+        res.json({ highScore });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error reading high score from KV store' });
+    }
 });
 
-// POST route to update the high score
-app.post('/api/highscore', (req, res) => {
+// POST route to update the high score in Vercel KV
+app.post('/api/highscore', async (req, res) => {
     const { score } = req.body;
 
-    fs.readFile(HIGH_SCORE_FILE, 'utf8', (err, data) => {
-        if (err) {
-            console.error(err);
-            return res.status(500).json({ message: 'Error reading high score' });
+    try {
+        // Get the current high score
+        const currentHighScore = await kv.get('highscore') || 0;
+
+        // Only update if the new score is higher
+        if (score > currentHighScore) {
+            await kv.set('highscore', score);
+            return res.json({ highScore: score });
         }
 
-        const currentData = JSON.parse(data);
-        if (score > currentData.highScore) {
-            currentData.highScore = score;
-            fs.writeFile(HIGH_SCORE_FILE, JSON.stringify(currentData, null, 2), (writeErr) => {
-                if (writeErr) {
-                    console.error(writeErr);
-                    return res.status(500).json({ message: 'Error writing high score' });
-                }
-                res.json(currentData);
-            });
-        } else {
-            res.json(currentData); // Send back the old high score if not beaten
-        }
-    });
+        res.json({ highScore: currentHighScore });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error writing high score to KV store' });
+    }
 });
 
 
